@@ -21,6 +21,9 @@ AI_PIECE = 2
 
 WINDOW_LENGTH = 4
 
+# dict of nodes and payouts
+payouts = {}
+
 
 def create_board():
     board = np.zeros((ROW_COUNT, COLUMN_COUNT))
@@ -195,25 +198,15 @@ def monte_carlo(board):
         total_samples = 0
         conf_interval = 0
 
-
-        wins_draws_losses = {
-            0: [0, 0, 0],
-            1: [0, 0, 0],
-            2: [0, 0, 0],
-            3: [0, 0, 0],
-            4: [0, 0, 0],
-            5: [0, 0, 0],
-            6: [0, 0, 0],
-        }
         next_moves = get_valid_locations(board)
         # move that will be selected to expand
         expanded_move = 0
 
         # run one trial for each move
-        selected_move = selection(board_copy, game_start)
-        move_count += 1
-        if move_count == 7:
-            game_start = False
+        selected_move = selection(board_copy)
+        match_result = simulation(board_copy, selected_move)
+
+        print(match_result)
 
         '''for move in next_moves:
             curr_move = wins_draws_losses[move]
@@ -225,14 +218,14 @@ def monte_carlo(board):
                     expanded_move = move'''
 
 
-def selection(board_copy, game_start):
-    next_moves = get_valid_locations(board_copy)
-    if game_start:
-        for i in range(6):
-            if board_copy[5][i] == 0:
-                board_copy[5][i] = 2
-                return i
-    for move in next_moves:
+def selection(board_copy):
+    open_cols = get_valid_locations(board_copy)
+    for col in open_cols:
+        row = get_next_open_row(board_copy, col)
+        node = (col, row)
+        if node not in payouts:
+            return node
+    '''for move in next_moves:
         while not (is_terminal_node(board_copy)):
             if len(next_moves) > 0:
                 rand_col = random.choice(next_moves)
@@ -245,19 +238,59 @@ def selection(board_copy, game_start):
                     if len(next_moves) == 0:
                         return
             else:
-                return
+                return'''
 
 
-def expansion():
-    pass
+def simulation(board_copy, move):
+    AI_seq = []
+    player_seq = []
+
+    AI_result = 0
 
 
-def simulation():
-    pass
+    player_turn = 2
+    while not is_terminal_node(board_copy):
+        valid_moves = get_valid_locations(board_copy)
+        selected_move = random.choice(valid_moves)
+        row = get_next_open_row(board_copy, selected_move)
+        drop_piece(board_copy, row, selected_move, player_turn)
+        draw_board(board_copy)
+        pygame.display.update()
+        node = (row, selected_move)
+        if player_turn == 2:
+            AI_seq.append(node)
+            player_turn = 1
+        else:
+            player_seq.append(node)
+            player_turn = 2
 
+    if winning_move(board_copy, PLAYER_PIECE):
+        for node in AI_seq:
+            if node not in payouts:
+                payouts[node] = [0, 0, 1, 1]
+            else:
+                # add 1 to losses and total trials
+                payouts[node][2] += 1
+                payouts[node][3] += 1
 
-def update():
-    pass
+        for node in player_seq:
+            if node not in payouts:
+                payouts[node] = [AI_result, 1, 1]
+    elif winning_move(board_copy, AI_PIECE):
+        AI_result = 0
+        player_result = 1
+    else:
+        for node in AI_seq:
+            if node not in payouts:
+                payouts[node] = [0, 1, 0, 1]
+            else:
+                # add 1 to draws and total trials
+                payouts[node][1] += 1
+                payouts[node][3] += 1
+
+        for node in player_seq:
+            if node not in payouts:
+                payouts[node] = [0, 1, 0, 1]
 
 
 def get_valid_locations(board):
@@ -391,4 +424,3 @@ if __name__ == '__main__':
 
         if game_over:
             pygame.time.wait(3000)'''
-
