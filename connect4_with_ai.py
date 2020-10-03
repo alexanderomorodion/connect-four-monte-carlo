@@ -26,6 +26,8 @@ total_samples = 0
 # dict of nodes and payouts
 payouts = {}
 
+# move: payout = [wins, draws, losses, total]
+
 
 def create_board():
     board = np.zeros((ROW_COUNT, COLUMN_COUNT))
@@ -200,10 +202,13 @@ def monte_carlo(board):
         conf_interval = 0
 
         # begin monte carlo search
-        for i in range(200):
+        for i in range(2000):
             board_copy = board.copy()
             selected_move = selection(board_copy, total_samples)
+            # use map/reduce for this
             total_samples += simulation(board_copy, selected_move)
+
+
 
         return selected_move
 
@@ -219,12 +224,13 @@ def selection(board_copy, total_moves):
         node = (row, col)
 
         # check moves that haven't been tried yet
-        if node not in payouts:
+        if node not in payouts.keys():
             return node
         else:
             confidence_interval = calc_conf_interval(payouts[node][0], payouts[node][1], payouts[node][3], total_moves)
             if confidence_interval > max_conf:
                 max_move = node
+                max_conf = confidence_interval
 
     return max_move
 
@@ -237,6 +243,7 @@ def simulation(board_copy, move):
     player_turn = 2
     total_moves = 1
 
+    # move: (row, col)
     drop_piece(board_copy, move[0], move[1], player_turn)
     sequence.append(move)
     while not is_terminal_node(board_copy):
@@ -257,6 +264,7 @@ def simulation(board_copy, move):
         else:
             player_turn = 2
 
+    # [wins, draws, losses, total_trials]
     # backpropagation
     if winning_move(board_copy, PLAYER_PIECE):
         for node in sequence:
