@@ -3,6 +3,8 @@ import random
 import pygame
 import sys
 import math
+import time
+import threading
 
 BLUE = (0, 0, 255)
 BLACK = (0, 0, 0)
@@ -23,10 +25,28 @@ WINDOW_LENGTH = 4
 
 total_samples = 0
 
-# dict of nodes and payouts
-payouts = {}
+payouts1 = {}
+payouts2 = {}
+payouts3 = {}
+payouts4 = {}
+grandPayouts = {}
 
-# move: payout = [wins, draws, losses, total]
+threadLock = threading.Lock()
+threads = []
+
+
+class myThread (threading.Thread):
+    def __init__(self, board, payouts):
+        threading.Thread.__init__(self)
+        self.board = board
+        self.payouts = payouts
+
+    def run(self):
+        # Get lock to synchronize threads
+        threadLock.acquire()
+        monte_carlo(self.board, self.payouts)
+        # Free lock to release next thread
+        threadLock.release()
 
 
 def create_board():
@@ -82,109 +102,8 @@ def winning_move(board, piece):
                 return True
 
 
-def evaluate_window(window, piece):
-    score = 0
-    opp_piece = PLAYER_PIECE
-    if piece == PLAYER_PIECE:
-        opp_piece = AI_PIECE
-
-    if window.count(piece) == 4:
-        score += 100
-    elif window.count(piece) == 3 and window.count(EMPTY) == 1:
-        score += 5
-    elif window.count(piece) == 2 and window.count(EMPTY) == 2:
-        score += 2
-
-    if window.count(opp_piece) == 3 and window.count(EMPTY) == 1:
-        score -= 4
-
-    return score
-
-
-def score_position(board, piece):
-    score = 0
-
-    ## Score center column
-    center_array = [int(i) for i in list(board[:, COLUMN_COUNT // 2])]
-    center_count = center_array.count(piece)
-    score += center_count * 3
-
-    ## Score Horizontal
-    for r in range(ROW_COUNT):
-        row_array = [int(i) for i in list(board[r, :])]
-        for c in range(COLUMN_COUNT - 3):
-            window = row_array[c:c + WINDOW_LENGTH]
-            score += evaluate_window(window, piece)
-
-    ## Score Vertical
-    for c in range(COLUMN_COUNT):
-        col_array = [int(i) for i in list(board[:, c])]
-        for r in range(ROW_COUNT - 3):
-            window = col_array[r:r + WINDOW_LENGTH]
-            score += evaluate_window(window, piece)
-
-    # Score positive sloped diagonal
-    for r in range(ROW_COUNT - 3):
-        for c in range(COLUMN_COUNT - 3):
-            window = [board[r + i][c + i] for i in range(WINDOW_LENGTH)]
-            score += evaluate_window(window, piece)
-
-    for r in range(ROW_COUNT - 3):
-        for c in range(COLUMN_COUNT - 3):
-            window = [board[r + 3 - i][c + i] for i in range(WINDOW_LENGTH)]
-            score += evaluate_window(window, piece)
-
-    return score
-
-
 def is_terminal_node(board):
     return winning_move(board, PLAYER_PIECE) or winning_move(board, AI_PIECE) or len(get_valid_locations(board)) == 0
-
-
-def minimax(board, depth, alpha, beta, maximizingPlayer):
-    valid_locations = get_valid_locations(board)
-    is_terminal = is_terminal_node(board)
-    if depth == 0 or is_terminal:
-        if is_terminal:
-            if winning_move(board, AI_PIECE):
-                return (None, 100000000000000)
-            elif winning_move(board, PLAYER_PIECE):
-                return (None, -10000000000000)
-            else:  # Game is over, no more valid moves
-                return (None, 0)
-        else:  # Depth is zero
-            return (None, score_position(board, AI_PIECE))
-    if maximizingPlayer:
-        value = -math.inf
-        column = random.choice(valid_locations)
-        for col in valid_locations:
-            row = get_next_open_row(board, col)
-            b_copy = board.copy()
-            drop_piece(b_copy, row, col, AI_PIECE)
-            new_score = minimax(b_copy, depth - 1, alpha, beta, False)[1]
-            if new_score > value:
-                value = new_score
-                column = col
-            alpha = max(alpha, value)
-            if alpha >= beta:
-                break
-        return column, value
-
-    else:  # Minimizing player
-        value = math.inf
-        column = random.choice(valid_locations)
-        for col in valid_locations:
-            row = get_next_open_row(board, col)
-            b_copy = board.copy()
-            drop_piece(b_copy, row, col, PLAYER_PIECE)
-            new_score = minimax(b_copy, depth - 1, alpha, beta, True)[1]
-            if new_score < value:
-                value = new_score
-                column = col
-            beta = min(beta, value)
-            if alpha >= beta:
-                break
-        return column, value
 
 
 def calc_conf_interval(wins, draws, move_samples, total_samples):
@@ -193,29 +112,35 @@ def calc_conf_interval(wins, draws, move_samples, total_samples):
     return first_term + second_term
 
 
-def monte_carlo(board):
-    game_start = True
-    move_count = 0
+def monte_carlo(board, payouts):
+    # dict of nodes and payouts
+    count = 0
+    start_time = time.time()
+    seconds = 10
     global total_samples
     # check if position is terminal
     while not (is_terminal_node(board)):
         conf_interval = 0
 
         # begin monte carlo search
-        for i in range(2000):
+        while True:
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+            if elapsed_time > seconds:
+                break
             board_copy = board.copy()
-            selected_move = selection(board_copy, total_samples)
+            selected_move = selection(board_copy, total_samples, payouts)
             # use map/reduce for this
-            total_samples += simulation(board_copy, selected_move)
+            total_samples += simulation(board_copy, selected_move, payouts)
+            count += 1
 
-
-
+        print(count)
         return selected_move
 
 
 # calculates confidence interval for each valid move and returns move with highest interval.
 # priority given to moves that are unsampled
-def selection(board_copy, total_moves):
+def selection(board_copy, total_moves, payouts):
     max_conf = 0
     max_move = ()
     open_cols = get_valid_locations(board_copy)
@@ -238,7 +163,7 @@ def selection(board_copy, total_moves):
 # simulates random moves from starting move to determine winner
 # updates wins/draws/losses/samples stats of each node simulated
 # returns number of nodes simulated
-def simulation(board_copy, move):
+def simulation(board_copy, move, payouts):
     sequence = []
     player_turn = 2
     total_moves = 1
@@ -302,22 +227,6 @@ def get_valid_locations(board):
     return valid_locations
 
 
-def pick_best_move(board, piece):
-    valid_locations = get_valid_locations(board)
-    best_score = -10000
-    best_col = random.choice(valid_locations)
-    for col in valid_locations:
-        row = get_next_open_row(board, col)
-        temp_board = board.copy()
-        drop_piece(temp_board, row, col, piece)
-        score = score_position(temp_board, piece)
-        if score > best_score:
-            best_score = score
-            best_col = col
-
-    return best_col
-
-
 def draw_board(board):
     for c in range(COLUMN_COUNT):
         for r in range(ROW_COUNT):
@@ -334,6 +243,32 @@ def draw_board(board):
                 pygame.draw.circle(screen, YELLOW, (
                     int(c * SQUARESIZE + SQUARESIZE / 2), height - int(r * SQUARESIZE + SQUARESIZE / 2)), RADIUS)
     pygame.display.update()
+
+
+def join_payouts():
+    for node in payouts1.keys():
+        if node not in grandPayouts:
+            grandPayouts[node] = payouts1[node]
+        else:
+            grandPayouts[node][0] += payouts1[node][0]
+            grandPayouts[node][1] += payouts1[node][1]
+            grandPayouts[node][2] += payouts1[node][2]
+            grandPayouts[node][3] += payouts1[node][3]
+        if node in payouts2.keys():
+            grandPayouts[node][0] += payouts2[node][0]
+            grandPayouts[node][1] += payouts2[node][1]
+            grandPayouts[node][2] += payouts2[node][2]
+            grandPayouts[node][3] += payouts2[node][3]
+        if node in payouts3.keys():
+            grandPayouts[node][0] += payouts3[node][0]
+            grandPayouts[node][1] += payouts3[node][1]
+            grandPayouts[node][2] += payouts3[node][2]
+            grandPayouts[node][3] += payouts3[node][3]
+        if node in payouts4.keys():
+            grandPayouts[node][0] += payouts4[node][0]
+            grandPayouts[node][1] += payouts4[node][1]
+            grandPayouts[node][2] += payouts4[node][2]
+            grandPayouts[node][3] += payouts4[node][3]
 
 
 if __name__ == '__main__':
@@ -399,7 +334,30 @@ if __name__ == '__main__':
 
         # # Ask for Player 2 Input
         if turn == AI and not game_over:
-            AI_move = monte_carlo(board)
+            # Create new threads
+            thread1 = myThread(board, payouts1)
+            thread2 = myThread(board, payouts2)
+            thread3 = myThread(board, payouts3)
+            thread4 = myThread(board, payouts4)
+
+            # Start new threads
+            thread1.start()
+            thread2.start()
+            thread3.start()
+            thread4.start()
+
+            # Add threads to thread list
+            threads.append(thread1)
+            threads.append(thread2)
+            threads.append(thread3)
+            threads.append(thread4)
+
+            # Wait for all threads to complete
+            for t in threads:
+                t.join()
+
+            # Perform one more selection based on grand total of payouts
+            selection(board, )
             drop_piece(board, AI_move[0], AI_move[1], AI_PIECE)
             if winning_move(board, AI_PIECE):
                 label = myfont.render("Player 2 wins!!", 1, YELLOW)
