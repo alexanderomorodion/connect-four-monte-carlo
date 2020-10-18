@@ -24,6 +24,7 @@ AI_PIECE = 2
 WINDOW_LENGTH = 4
 
 total_samples = 0
+grand_total_samples = 0
 
 payouts1 = {}
 payouts2 = {}
@@ -42,11 +43,8 @@ class myThread (threading.Thread):
         self.payouts = payouts
 
     def run(self):
-        # Get lock to synchronize threads
-        threadLock.acquire()
-        monte_carlo(self.board, self.payouts)
-        # Free lock to release next thread
-        threadLock.release()
+        for i in range(4):
+            monte_carlo(self.board, self.payouts)
 
 
 def create_board():
@@ -108,7 +106,7 @@ def is_terminal_node(board):
 
 def calc_conf_interval(wins, draws, move_samples, total_samples):
     first_term = (wins + (draws / 2)) / move_samples
-    second_term = 2 * math.sqrt(((np.log(total_samples)) / move_samples))
+    second_term = math.sqrt(((np.log(total_samples)) / move_samples))
     return first_term + second_term
 
 
@@ -123,14 +121,9 @@ def monte_carlo(board, payouts):
         conf_interval = 0
 
         # begin monte carlo search
-        while True:
-            current_time = time.time()
-            elapsed_time = current_time - start_time
-            if elapsed_time > seconds:
-                break
+        for i in range(1000):
             board_copy = board.copy()
             selected_move = selection(board_copy, total_samples, payouts)
-            # use map/reduce for this
             total_samples += simulation(board_copy, selected_move, payouts)
             count += 1
 
@@ -246,6 +239,8 @@ def draw_board(board):
 
 
 def join_payouts():
+    global grand_total_samples
+    global grandPayouts
     for node in payouts1.keys():
         if node not in grandPayouts:
             grandPayouts[node] = payouts1[node]
@@ -269,6 +264,8 @@ def join_payouts():
             grandPayouts[node][1] += payouts4[node][1]
             grandPayouts[node][2] += payouts4[node][2]
             grandPayouts[node][3] += payouts4[node][3]
+        grand_total_samples += grandPayouts[node][3]
+    return grand_total_samples
 
 
 if __name__ == '__main__':
@@ -357,7 +354,8 @@ if __name__ == '__main__':
                 t.join()
 
             # Perform one more selection based on grand total of payouts
-            selection(board, )
+            grandTotal = join_payouts()
+            AI_move = selection(board, grandTotal, grandPayouts)
             drop_piece(board, AI_move[0], AI_move[1], AI_PIECE)
             if winning_move(board, AI_PIECE):
                 label = myfont.render("Player 2 wins!!", 1, YELLOW)
